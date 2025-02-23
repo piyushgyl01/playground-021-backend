@@ -19,7 +19,7 @@ const imageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    tage: [
+    tags: [
       {
         type: String,
       },

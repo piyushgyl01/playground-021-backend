@@ -31,6 +31,7 @@ const upload = multer({
     if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
       return cb(new Error("Only image files are allowed!"), false);
     }
+    cb(null, true);
   },
 });
 
@@ -150,6 +151,262 @@ app.post("/albums", verifyToken, async (req, res) => {
       .json({ message: "Error creating album", error: error.message });
   }
 });
+
+app.get("/albums", verifyToken, async (req, res) => {
+  try {
+    const albums = await Album.find({ owner: req.user.id });
+    res.json({ albums });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error getting album", error: error.message });
+  }
+});
+
+app.get("/albums/:id", verifyToken, async (req, res) => {
+  try {
+    const album = await Album.findById(req.params.id);
+    if (!album) {
+      return res.status(404).json({ message: "Album not found" });
+    }
+
+    if (
+      album.owner !== req.user.id &&
+      !album.sharedUsers.includes(req.user.username)
+    ) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    res.json({ album });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error getting album", error: error.message });
+  }
+});
+
+app.put("/albums/:id", verifyToken, async (req, res) => {
+  try {
+    const album = await Album.findById(req.params.id);
+    if (!album) {
+      return res.status(404).json({ message: "Album not found" });
+    }
+
+    if (album.owner !== req.user.id) {
+      res.status(403).json({ message: "Not authorised to update this album" });
+    }
+
+    const updatedAlbum = await Album.findByIdAndUpdate(
+      req.params.id,
+      { $set: req.body },
+      { new: true }
+    );
+
+    res.json({ message: "Album updated successfully", album: updatedAlbum });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error updating album", error: error.message });
+  }
+});
+
+app.delete("/albums/:id", verifyToken, async (req, res) => {
+  try {
+    const album = await Album.findById(req.params.id);
+    if (!album) {
+      return res.status(404).json({ message: "Album not found" });
+    }
+
+    if (album.owner !== req.user.id) {
+      res.status(403).json({ message: "Not authorized to delete this album" });
+    }
+
+    await Album.findByIdAndDelete(req.params.id);
+    await Image.deleteMany({ albumId: req.params.id });
+
+    res.json({ message: "Album and associated images deleted successfully" });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error deleting album", error: error.message });
+  }
+});
+
+app.post("/albums/:id/share", verifyToken, async (req, res) => {
+  const { usernames } = req.body;
+
+  try {
+    const album = await Album.findById(req.params.id);
+    if (!album) {
+      return res.status(404).json({ message: "Album not found" });
+    }
+
+    if (album.owner !== req.user.id) {
+      res.status(403).json({ message: "Not authorized to share this album" });
+    }
+
+    album.sharedUsers = [...new Set([...album.sharedUsers, ...usernames])];
+    await album.save();
+
+    res.json({ message: "Album shared successfully", album });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error sharing album", error: error.message });
+  }
+});
+
+app.post(
+  "/albums/:albumId/images",
+  verifyToken,
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      const { albumId } = req.params;
+      const { tags, person, isFavorite, name } = req.body;
+      const userId = req.user.id;
+      const album = await Album.findById(albumId);
+      if (!album) {
+        return res.status(404).json({ message: "Album not found" });
+      }
+
+      if (album.owner !== userId) {
+        return res
+          .status(403)
+          .json({ message: "Not authorized to upload to this album" });
+      }
+
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const fileSize = fs.statSync(file.path).size;
+      if (fileSize > 5 * 1024 * 1024) {
+        return res.status(400).json({ message: "File size exceeds 5MB limit" });
+      }
+
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: "uploads",
+      });
+
+      const newImage = new Image({
+        albumId,
+        cloudinaryPublicId: result.public_id,
+        file: result.secure_url,
+        tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
+        person,
+        isFavorite: isFavorite || false,
+        name,
+        size: fileSize,
+      });
+
+      await newImage.save();
+
+      res
+        .status(201)
+        .json({ message: "Image uploaded successfully", image: newImage });
+    } catch (error) {
+      res
+        .status(500)
+        .json({ message: "Error posting images", error: error.message });
+    }
+  }
+);
+
+app.get("/albums/:albumId/images", verifyToken, async (req, res) => {
+  try {
+    const { albumId } = req.params;
+    const { tags } = req.query;
+
+    const query = { albumId };
+    if (tags) {
+      query.tags = { $in: tags.split(",").map((tag) => tag.trim()) };
+    }
+
+    const images = await Image.find(query).populate("comments.user");
+    res.json({ images });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error getting images", error: error.message });
+  }
+});
+
+app.put(
+  "/albums/:albumId/images/:imageId/favorite",
+  verifyToken,
+  async (req, res) => {
+    try {
+      const { albumId, imageId } = req.params;
+      const userId = req.user.id;
+
+      const album = await Album.findById(albumId);
+      if (!album) {
+        return res.status(404).json({ message: "Album not found" });
+      }
+
+      if (userId !== album.owner) {
+        return res.status(403).json({ message: "Not authorised" });
+      }
+
+      const image = await Image.findByIdAndUpdate(
+        imageId,
+        [{ $set: { isFavorite: { $not: "$isFavorite" } } }],
+        { new: true }
+      );
+
+      if (!image) {
+        res.status(404).json({ message: "Image not found" });
+      }
+
+      res.json({ message: "Favorite status updated", image });
+    } catch (error) {
+      res.status(500).json({
+        message: "Error toggling favorite status",
+        error: error.message,
+      });
+    }
+  }
+);
+
+app.delete(
+  "/albums/:albumId/images/:imageId",
+  verifyToken,
+  async (req, res) => {
+    try {
+      const { albumId, imageId } = req.params;
+      const userId = req.user.id;
+
+      const album = await Album.findById(albumId);
+      if (!album) {
+        return res.status(404).json({ message: "Album not found" });
+      }
+
+      if (userId !== album.owner) {
+        return res.status(403).json({ message: "Not authorised" });
+      }
+
+      const image = await Image.findById(imageId);
+      if (!image) {
+        return res.status(404).json({ message: "Image not found" });
+      }
+
+      if (image.cloudinaryPublicId) {
+        await cloudinary.uploader.destroy(image.cloudinaryPublicId);
+      }
+
+      await Image.findByIdAndDelete(imageId);
+
+      res.json({ message: "Image deleted successfully" });
+    } catch (error) {
+      res.status(500).json({
+        message: "Error deleting image",
+        error: error.message,
+      });
+    }
+  }
+);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
