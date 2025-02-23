@@ -408,6 +408,115 @@ app.delete(
   }
 );
 
+app.get("/profile", verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({
+      message: "Error getting profile",
+      error: error.message,
+    });
+  }
+});
+
+app.put("/profile", verifyToken, async (req, res) => {
+  try {
+    const { name, profilePicture } = req.body;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { name, profilePicture },
+      { new: true }
+    ).select("-password");
+
+    res.json({ message: "Profile updated successfully", user: updatedUser });
+  } catch (error) {
+    res.status(500).json({
+      message: "Error updating profile",
+      error: error.message,
+    });
+  }
+});
+
+app.put("/profile/password", verifyToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await User.findById(req.user.id);
+    const validPassword = await bcrypt.compare(currentPassword, user.password);
+
+    if (!validPassword) {
+      return res.status(400).json({ message: "Current password is incorrect" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    res.json({ message: "Password updated successfully" });
+  } catch (error) {
+    res.status(500).json({
+      message: "Error updating password",
+      error: error.message,
+    });
+  }
+});
+
+app.get("/search/images", verifyToken, async (req, res) => {
+  try {
+    const { query, tags, person, albumId, favorite } = req.query;
+
+    const searchCriteria = {};
+
+    if (albumId) {
+      const album = await Album.findById(albumId);
+      if (!album) {
+        return res.status(404).json({ message: "Album not found" });
+      }
+
+      if (
+        album.owner !== req.user.id &&
+        !album.sharedUsers.includes(req.user.username)
+      ) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      searchCriteria.albumId = albumId;
+    } else {
+      const userAlbums = await Album.find({
+        $or: [{ owner: req.user.id }, { sharedUsers: req.user.username }],
+      });
+      searchCriteria.albumId = { $in: userAlbums.map((album) => album._id) };
+    }
+
+    if (query) {
+      searchCriteria.name = { $regex: query, $options: "i" };
+    }
+
+    if (tags) {
+      searchCriteria.tags = {
+        $in: tags.split(",").map((tag) => new RegExp(tag.trim(), "i")),
+      };
+    }
+
+    if (person) {
+      searchCriteria.person = { $regex: person, $options: "i" };
+    }
+
+    if (favorite === "true") {
+      searchCriteria.isFavorite = true;
+    }
+
+    const images = await Image.find(searchCriteria)
+      .populate("comments.user", "username name")
+      .sort({ createdAt: -1 });
+
+    res.json({ images });
+  } catch (error) {
+    res.status(500).json({ message: "Error searching images" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
