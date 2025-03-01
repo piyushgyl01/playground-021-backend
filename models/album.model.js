@@ -6,6 +6,9 @@ const albumSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    albumCover: {
+      type: String,
+    },
     description: {
       type: String,
     },

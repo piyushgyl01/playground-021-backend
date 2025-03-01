@@ -36,7 +36,13 @@ const upload = multer({
 });
 
 app.use(express.json());
-app.use(cors({ credentials: true, origin: process.env.FRONTEND_URL }));
+const corsOptions = {
+  origin: "http://localhost:5173",
+  credentials: true,
+  optionSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
 app.use(cookieParser());
 
 initialiseDatabase();
@@ -45,6 +51,7 @@ const verifyToken = (req, res, next) => {
   const token = req.cookies.access_token;
 
   if (!token) {
+    console.log("Provide token");
     return res
       .status(401)
       .json({ message: "Access denied. No token provided." });
@@ -55,6 +62,7 @@ const verifyToken = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (error) {
+    console.log(error);
     return res.status(401).json({ message: "Invalid token." });
   }
 };
@@ -115,13 +123,27 @@ app.post("/auth/login", async (req, res) => {
     res.cookie("access_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",  
       maxAge: 24 * 60 * 60 * 1000,
+      path: "/"  
     });
+  
 
     res.json({ message: "Logged in successfully" });
   } catch (error) {
     res.status(500).json({ message: "Error logging in", error: error.message });
+  }
+});
+
+app.get("/auth/me", verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching user", error: error.message });
   }
 });
 
