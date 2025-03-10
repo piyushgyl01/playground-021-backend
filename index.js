@@ -45,10 +45,12 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(cookieParser());
 
+const JWT_SECRET = process.env.JWT_SECRET;
+
 initialiseDatabase();
 
 const verifyToken = (req, res, next) => {
-  const token = req.cookies.access_token;
+  const token = req.headers.authorization?.split(" ")[1];
 
   if (!token) {
     console.log("Provide token");
@@ -58,7 +60,7 @@ const verifyToken = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (error) {
@@ -67,8 +69,14 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+
+
 app.post("/auth/register", async (req, res) => {
   const { username, name, password } = req.body;
+
+  if (!username || !name || !password) {
+    return res.status(400).json({ message: "Please provide" });
+  }
 
   try {
     const existingUser = await User.findOne({ username });
@@ -77,7 +85,8 @@ app.post("/auth/register", async (req, res) => {
       return res.status(400).json({ message: "Username already exists" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
     const user = new User({
       username,
@@ -97,6 +106,10 @@ app.post("/auth/register", async (req, res) => {
 app.post("/auth/login", async (req, res) => {
   const { username, password } = req.body;
 
+  if (!username || !password) {
+    return res.status(400).json({ message: "Please provide" });
+  }
+
   try {
     const user = await User.findOne({ username });
 
@@ -114,22 +127,24 @@ app.post("/auth/login", async (req, res) => {
         id: user._id,
         username: user.username,
       },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       {
         expiresIn: "24h",
       }
     );
 
-    res.cookie("access_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",  
-      maxAge: 24 * 60 * 60 * 1000,
-      path: "/"  
-    });
-  
+    // Return user info without password
+    const userResponse = {
+      _id: user._id,
+      username: user.username,
+      name: user.name,
+    };
 
-    res.json({ message: "Logged in successfully" });
+    res.status(200).json({
+      message: "Logged in",
+      token,
+      user: userResponse,
+    });
   } catch (error) {
     res.status(500).json({ message: "Error logging in", error: error.message });
   }
@@ -143,14 +158,35 @@ app.get("/auth/me", verifyToken, async (req, res) => {
     }
     res.json(user);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching user", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error fetching user", error: error.message });
   }
 });
 
 app.post("/auth/logout", (req, res) => {
-  res.clearCookie("access_token");
+  // This can be a simple response since token management is client-side
   res.json({ message: "Logged out successfully" });
 });
+
+// app.get("/auth/me", verifyToken, async (req, res) => {
+//   try {
+//     const user = await User.findById(req.user.id).select("-password");
+//     if (!user) {
+//       return res.status(404).json({ message: "User not found" });
+//     }
+//     res.json(user);
+//   } catch (error) {
+//     res
+//       .status(500)
+//       .json({ message: "Error fetching user", error: error.message });
+//   }
+// });
+
+// app.post("/auth/logout", (req, res) => {
+//   res.clearCookie("access_token");
+//   res.json({ message: "Logged out successfully" });
+// });
 
 app.post("/albums", verifyToken, async (req, res) => {
   const { name, description } = req.body;
@@ -182,6 +218,29 @@ app.get("/albums", verifyToken, async (req, res) => {
     res
       .status(500)
       .json({ message: "Error getting album", error: error.message });
+  }
+});
+
+app.get("/albums/shared", verifyToken, async (req, res) => {
+  try {
+    const userUsername = req.user.username;
+
+    // Find albums where the current user is in the sharedUsers array 
+    // and is not the owner of the album
+    const sharedAlbums = await Album.find({ 
+      sharedUsers: userUsername, 
+      owner: { $ne: req.user.id } 
+    });
+
+    res.status(200).json({
+      message: "Shared albums fetched successfully.",
+      albums: sharedAlbums,
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      message: "Error fetching shared albums", 
+      error: error.message 
+    });
   }
 });
 
