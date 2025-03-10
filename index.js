@@ -69,8 +69,6 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-
-
 app.post("/auth/register", async (req, res) => {
   const { username, name, password } = req.body;
 
@@ -133,7 +131,6 @@ app.post("/auth/login", async (req, res) => {
       }
     );
 
-    // Return user info without password
     const userResponse = {
       _id: user._id,
       username: user.username,
@@ -165,28 +162,8 @@ app.get("/auth/me", verifyToken, async (req, res) => {
 });
 
 app.post("/auth/logout", (req, res) => {
-  // This can be a simple response since token management is client-side
   res.json({ message: "Logged out successfully" });
 });
-
-// app.get("/auth/me", verifyToken, async (req, res) => {
-//   try {
-//     const user = await User.findById(req.user.id).select("-password");
-//     if (!user) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-//     res.json(user);
-//   } catch (error) {
-//     res
-//       .status(500)
-//       .json({ message: "Error fetching user", error: error.message });
-//   }
-// });
-
-// app.post("/auth/logout", (req, res) => {
-//   res.clearCookie("access_token");
-//   res.json({ message: "Logged out successfully" });
-// });
 
 app.post("/albums", verifyToken, async (req, res) => {
   const { name, description } = req.body;
@@ -225,11 +202,9 @@ app.get("/albums/shared", verifyToken, async (req, res) => {
   try {
     const userUsername = req.user.username;
 
-    // Find albums where the current user is in the sharedUsers array 
-    // and is not the owner of the album
-    const sharedAlbums = await Album.find({ 
-      sharedUsers: userUsername, 
-      owner: { $ne: req.user.id } 
+    const sharedAlbums = await Album.find({
+      sharedUsers: userUsername,
+      owner: { $ne: req.user.id },
     });
 
     res.status(200).json({
@@ -237,9 +212,9 @@ app.get("/albums/shared", verifyToken, async (req, res) => {
       albums: sharedAlbums,
     });
   } catch (error) {
-    res.status(500).json({ 
-      message: "Error fetching shared albums", 
-      error: error.message 
+    res.status(500).json({
+      message: "Error fetching shared albums",
+      error: error.message,
     });
   }
 });
