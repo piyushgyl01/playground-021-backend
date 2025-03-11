@@ -37,7 +37,10 @@ const upload = multer({
 
 app.use(express.json());
 const corsOptions = {
-  origin: "http://localhost:5173",
+  origin: [
+    "http://localhost:5173",
+    "https://playground-021-frontend.vercel.app",
+  ],
   credentials: true,
   optionSuccessStatus: 200,
 };
@@ -436,7 +439,7 @@ app.post(
       const { text } = req.body;
       const userId = req.user.id;
 
-      if (!text || text.trim() === '') {
+      if (!text || text.trim() === "") {
         return res.status(400).json({ message: "Comment text is required" });
       }
 
@@ -448,10 +451,12 @@ app.post(
 
       // Allow comments from both the owner and users the album is shared with
       if (
-        album.owner !== userId && 
+        album.owner !== userId &&
         !album.sharedUsers.includes(req.user.username)
       ) {
-        return res.status(403).json({ message: "Not authorized to comment on this album" });
+        return res
+          .status(403)
+          .json({ message: "Not authorized to comment on this album" });
       }
 
       // Find the image and add comment
@@ -464,26 +469,30 @@ app.post(
       const newComment = {
         text,
         user: userId,
-        createdAt: new Date()
+        createdAt: new Date(),
       };
 
       image.comments.push(newComment);
       await image.save();
 
       // Fetch the populated comment to return
-      const populatedImage = await Image.findById(imageId).populate('comments.user', 'username name');
-      const addedComment = populatedImage.comments[populatedImage.comments.length - 1];
+      const populatedImage = await Image.findById(imageId).populate(
+        "comments.user",
+        "username name"
+      );
+      const addedComment =
+        populatedImage.comments[populatedImage.comments.length - 1];
 
-      res.status(201).json({ 
-        message: "Comment added successfully", 
+      res.status(201).json({
+        message: "Comment added successfully",
         comment: addedComment,
-        imageId
+        imageId,
       });
     } catch (error) {
-      console.error('Add Comment Error:', error);
+      console.error("Add Comment Error:", error);
       res.status(500).json({
         message: "Error adding comment",
-        error: error.message
+        error: error.message,
       });
     }
   }
