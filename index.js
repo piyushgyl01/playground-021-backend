@@ -166,7 +166,7 @@ app.post("/auth/logout", (req, res) => {
 });
 
 app.post("/albums", verifyToken, async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, albumCover } = req.body;
   const userId = req.user.id;
 
   try {
@@ -174,6 +174,7 @@ app.post("/albums", verifyToken, async (req, res) => {
       name,
       description,
       owner: userId,
+      albumCover,
     });
 
     const savedAlbum = await newAlbum.save();
@@ -421,6 +422,68 @@ app.put(
       res.status(500).json({
         message: "Error toggling favorite status",
         error: error.message,
+      });
+    }
+  }
+);
+
+app.post(
+  "/albums/:albumId/images/:imageId/comments",
+  verifyToken,
+  async (req, res) => {
+    try {
+      const { albumId, imageId } = req.params;
+      const { text } = req.body;
+      const userId = req.user.id;
+
+      if (!text || text.trim() === '') {
+        return res.status(400).json({ message: "Comment text is required" });
+      }
+
+      // Check if album exists and user has access
+      const album = await Album.findById(albumId);
+      if (!album) {
+        return res.status(404).json({ message: "Album not found" });
+      }
+
+      // Allow comments from both the owner and users the album is shared with
+      if (
+        album.owner !== userId && 
+        !album.sharedUsers.includes(req.user.username)
+      ) {
+        return res.status(403).json({ message: "Not authorized to comment on this album" });
+      }
+
+      // Find the image and add comment
+      const image = await Image.findById(imageId);
+      if (!image) {
+        return res.status(404).json({ message: "Image not found" });
+      }
+
+      // Create and add the comment
+      const newComment = {
+        text,
+        user: userId,
+        createdAt: new Date()
+      };
+
+      image.comments.push(newComment);
+      await image.save();
+
+      // Fetch the populated comment to return
+      const populatedImage = await Image.findById(imageId).populate('comments.user', 'username name');
+      const addedComment = populatedImage.comments[populatedImage.comments.length - 1];
+
+      res.status(201).json({ 
+        message: "Comment added successfully", 
+        comment: addedComment,
+        imageId
+      });
+    } catch (error) {
+      console.error('Add Comment Error:', error);
+      res.status(500).json({
+        message: "Error adding comment",
+        error: error.message
       });
     }
   }
