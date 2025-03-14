@@ -40,6 +40,7 @@ const corsOptions = {
   origin: [
     "http://localhost:5173",
     "https://playground-021-frontend.vercel.app",
+    "https://picslify-frontend.vercel.app"
   ],
   credentials: true,
   optionSuccessStatus: 200,
