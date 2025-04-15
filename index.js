@@ -37,12 +37,7 @@ const upload = multer({
 
 app.use(express.json());
 const corsOptions = {
-  origin: [
-    "http://localhost:5173",
-    "https://playground-021-frontend.vercel.app",
-    "https://picslify-frontend.vercel.app",
-    "https://playground-021-backend.vercel.app
-  ],
+  origin: "*",
   credentials: true,
   optionSuccessStatus: 200,
 };
